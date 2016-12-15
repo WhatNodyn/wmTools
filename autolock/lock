@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+# lock for Autolocker
+# Author	Nodyn
+# Last Change	Thu Dec 15 14:31:03 CET 2016
+
+from pydbus import SystemBus
+
+def main():
+    bus = SystemBus()
+
+    manager = bus.get('.login1')
+    session = bus.get('.login1', 'session/self').Id
+    manager.LockSession(session)
+    
+
+if __name__ == '__main__':
+    main()

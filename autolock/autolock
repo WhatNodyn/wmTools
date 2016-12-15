@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+# autolock for Autolocker
+# Author	Nodyn
+# Last Change	Thu Dec 15 14:26:03 CET 2016
+
+from gi.repository import GLib
+from pydbus import SystemBus
+from subprocess import Popen as start
+import argparse, shlex
+
+class Autolocker:
+    def __init__(self, command, bus=None, verbose=False, greeter=False):
+        self.bus = bus or SystemBus()
+        if bus == None:
+            bus = SystemBus()
+        self.bus = bus
+        if verbose:
+            print('[Autolock] Connected to system bus.')
+        if type(command) == str:
+            self.command = shlex.split(command)
+        else:
+            self.command = command
+        self.greeter = greeter
+        self.verbose = verbose
+        self.process = None
+        session = bus.get('.login1', 'session/self')
+        self.session = bus.get('.login1', 'session/{}'.format(session.Id))
+        if self.verbose:
+            print('[Autolock] Got object for session {}.'.format(session.Id))
+        self.session.onLock = self.lock
+        self.session.onUnlock = self.unlock
+
+    def lock(self):
+        if self.verbose:
+            print('[Autolock] Received request to lock.')
+        if self.process == None or not self.session.LockedHint:
+            if self.verbose:
+                print('[Autolock] Locking...')
+            self.process = start(self.command)
+            GLib.child_watch_add(self.process.pid, self.on_exit)
+            self.session.SetLockedHint(True)
+            if self.greeter:
+                self.activate_greeter()
+        elif self.verbose:
+            print('[Autolock] But the session is already locked.')
+
+    def unlock(self):
+        if self.verbose:
+            print('[Autolock] Received request to unlock.')
+        if self.process != None:
+            if self.verbose:
+                print('[Autolock] Terminating the lockscreen...')
+            process, self.process = self.process, None
+            process.terminate()
+            self.session.SetLockedHint(False)
+        elif self.verbose:
+            print("[Autolock] But we didn't lock the session!")
+
+    def on_exit(self, *args):
+        if self.process == None or not self.session.LockedHint:
+            if self.verbose:
+                print('[Autolock] Process has exited as planned.')
+            return
+        elif self.process.poll() == 0:
+            if self.verbose:
+                print('[Autolock] Process has exited because the user unlocked the session.')
+            self.process = None
+            self.session.SetLockedHint(False)
+        else:
+            if self.verbose:
+                print('[Autolock] Process has exited because it crashed. Restarting...')
+            self.process = start(self.command)
+            GLib.child_watch_add(self.process.pid, self.on_exit)
+
+    def activate_greeter(self):
+        sess_list = self.bus.get('.login1').ListSessions()
+        for sess in sess_list:
+            session = self.bus.get('.login1', sess[4])
+            if session.Class == 'greeter':
+                if self.verbose:
+                    print('[Autolock] Switching to greeter...')
+                session.Activate()
+                break
+
+    def main(self):
+        self.loop = GLib.MainLoop()
+        if self.verbose:
+            print('[Autolock] Listening to events...')
+        self.loop.run()
+
+def main():
+    parser = argparse.ArgumentParser(description='Lock your screen as D-Bus dictates')
+    parser.add_argument('-g', '--greeter', action='store_true', help='Switch to greeter after locking')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Log things that happen while the script is running')
+    parser.add_argument('command', help="The locker's command. It's expected not to fork (`i3lock -n`).")
+    ns = parser.parse_args()
+    if len(ns.command) == 1:
+        ns.command = ns.command[0]
+    autolocker = Autolocker(ns.command, verbose=ns.verbose, greeter=ns.greeter)
+    autolocker.main()
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
