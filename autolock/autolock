@@ -76,11 +76,13 @@ class Autolocker:
         sess_list = self.bus.get('.login1').ListSessions()
         for sess in sess_list:
             session = self.bus.get('.login1', sess[4])
-            if session.Class == 'greeter':
+            if session.Class == 'greeter' and session.Seat == self.session.Seat:
                 if self.verbose:
-                    print('[Autolock] Switching to greeter...')
+                    print("[Autolock] Switching to our seat's greeter...")
                 session.Activate()
-                break
+                return
+        if self.verbose:
+            print("[Autolock] Greeter didn't register itself to logind. I'm so sorry.")
 
     def main(self):
         self.loop = GLib.MainLoop()
